@@ -8,17 +8,16 @@ export function PlayerBoard({
   isSelectableTarget,
   onSelectTarget,
 }) {
-    const roundScore = calculateRoundScore(
-    player.hand,
-    player.status === 'busted'
-  );
+  const isZero = player.status === 'busted' || player.status === 'disconnected';
+  const roundScore = calculateRoundScore(player.hand, isZero);
   const numberCount = getNumberCards(player.hand).length;
 
   const statusLabels = {
-    active: 'Em jogo',
-    stayed: 'Parou (Salvo)',
-    frozen: 'Congelado (Salvo)',
-    busted: 'Estourou (0 pts)',
+    active: '🎲 Em jogo',
+    stayed: '✅ Parou (Salvo)',
+    frozen: '❄️ Congelado (Salvo)',
+    busted: '💥 Estourou (0 pts)',
+    disconnected: '🚪 Saiu da partida',
   };
 
   return (
@@ -34,15 +33,16 @@ export function PlayerBoard({
           {player.isBot && <span className="badge badge-bot">🤖 Bot</span>}
           {isDealer && <span className="badge badge-dealer">Dealer</span>}
           {isCurrentTurn && <span className="badge badge-turn">Vez</span>}
-          {player.hasSecondChance && (
-            <span className="badge badge-shield" title="Second Chance ativa">
-              🛡️ 2nd Chance
-            </span>
-          )}
         </div>
 
         <div className="player-scores">
-          <span className="round-pts">Rodada: +{roundScore}</span>
+          <span className="round-pts">
+            {player.status === 'busted'
+              ? 'Rodada: 0 (Bust)'
+              : player.status === 'frozen'
+              ? `Congelado: +${roundScore}`
+              : `Rodada: +${roundScore}`}
+          </span>
           <span className="total-pts">Total: {player.totalScore} / 200</span>
         </div>
       </div>
@@ -57,10 +57,24 @@ export function PlayerBoard({
       </div>
 
       <div className="player-hand">
-        {player.hand.length === 0 ? (
+        {player.hand.length === 0 && !player.hasSecondChance ? (
           <span className="empty-hand">Sem cartas na mesa</span>
         ) : (
-          player.hand.map((card) => <Card key={card.id} card={card} />)
+          <>
+            {player.hand.map((card) => (
+              <Card key={card.id} card={card} />
+            ))}
+            {player.hasSecondChance && (
+              <Card
+                card={{
+                  id: `sc-${player.id}`,
+                  type: 'action',
+                  value: 'second_chance',
+                  label: '2nd Chance',
+                }}
+              />
+            )}
+          </>
         )}
       </div>
 

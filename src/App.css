@@ -179,16 +179,6 @@
   box-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
 }
 
-.player-board.status-busted {
-  opacity: 0.65;
-  border-color: #ef4444;
-}
-
-.player-board.status-stayed,
-.player-board.status-frozen {
-  border-color: #10b981;
-}
-
 .player-board.selectable-target {
   border-color: #f43f5e;
   cursor: pointer;
@@ -351,4 +341,71 @@
   gap: 0.3rem;
   font-size: 0.88rem;
   color: #cbd5e1;
+}
+
+/* Diferenciação visual por status do jogador */
+.player-board.status-stayed {
+  border-color: #10b981;
+  background: linear-gradient(145deg, #1e293b 65%, #064e3b 100%);
+}
+
+.player-board.status-frozen {
+  border-color: #38bdf8;
+  background: linear-gradient(145deg, #1e293b 55%, #0c4a6e 100%);
+  box-shadow: inset 0 0 18px rgba(56, 189, 248, 0.25);
+}
+
+.player-board.status-busted {
+  opacity: 0.78;
+  border-color: #ef4444;
+  background: linear-gradient(145deg, #1e293b 60%, #450a0a 100%);
+}
+
+.player-board.status-disconnected {
+  opacity: 0.45;
+  border-color: #64748b;
+  border-style: dashed;
+}
+
+.status-tag {
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+}
+
+.tag-stayed {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.tag-frozen {
+  background: rgba(56, 189, 248, 0.25);
+  color: #7dd3fc;
+}
+
+.tag-busted {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
+
+.tag-disconnected {
+  background: rgba(100, 116, 139, 0.25);
+  color: #cbd5e1;
+}
+
+/* Destaque da última carta puxada / ação na barra superior */
+.last-event-box {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  background: #0f172a;
+  border: 1px solid #334155;
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+}
+
+.last-event-text {
+  font-size: 0.95rem;
+  color: #e2e8f0;
+  font-weight: 600;
 }

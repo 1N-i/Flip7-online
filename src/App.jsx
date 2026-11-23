@@ -6,6 +6,7 @@ import {
   playerStay,
   resolvePendingAction,
   startNextRound,
+  handlePlayerDisconnect,
 } from './game/engine.js';
 import {
   decideBotTurnAction,
@@ -21,8 +22,11 @@ import {
   normalizeFirebaseGameState,
   addBotToOnlineLobby,
   removePlayerFromOnlineLobby,
+  transferHost,
+  leaveOnlineRoom,
 } from './game/onlineService.js';
 import { PlayerBoard } from './components/PlayerBoard.jsx';
+import { Card } from './components/Card.jsx';
 
 const BOT_PRESETS = [
   { name: 'Bot Alfa', profile: 'balanced' },
@@ -44,7 +48,6 @@ function createBotPlayer(existingCount) {
 }
 
 export function App() {
-  // Navegação: 'home' | 'local_setup' | 'online_lobby' | 'playing'
   const [screen, setScreen] = useState('home');
 
   // Estados do Modo Local
@@ -64,7 +67,7 @@ export function App() {
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Escuta alterações na sala online quando conectado
+  // Escuta alterações na sala online
   useEffect(() => {
     if (!roomCode) return;
     const unsubscribe = subscribeToRoom(roomCode, (data) => {
@@ -98,13 +101,62 @@ export function App() {
     [isOnline, roomCode]
   );
 
+  // --- MONITORAMENTO DE DESCONEXÃO E TROCA DE ADMIN (ANTI-SOFTLOCK) ---
+  useEffect(() => {
+    if (!isOnline || !roomData || !myPlayerId) return;
+
+    const lobbyEntries = Object.values(roomData.lobbyPlayers || {});
+    const connectedHumans = lobbyEntries
+      .filter((p) => !p.isBot && p.online !== false)
+      .sort((a, b) => a.joinedAt - b.joinedAt);
+
+    if (connectedHumans.length === 0) return;
+
+    // 1. Se o anfitrião atual ficou offline, o primeiro humano conectado assume o cargo
+    const currentHost = roomData.lobbyPlayers?.[roomData.hostId];
+    if (!currentHost || currentHost.online === false) {
+      if (connectedHumans[0].id === myPlayerId) {
+        transferHost(roomCode, myPlayerId);
+      }
+      return;
+    }
+
+    // 2. Se estamos em partida e o anfitrião sou eu, remove da rodada quem desconectou
+    if (
+      screen === 'playing' &&
+      gameState &&
+      roomData.hostId === myPlayerId
+    ) {
+      const disconnectedInGame = gameState.players.find((p) => {
+        if (p.isBot || p.status === 'disconnected') return false;
+        const lobbyInfo = roomData.lobbyPlayers?.[p.id];
+        return !lobbyInfo || lobbyInfo.online === false;
+      });
+
+      if (disconnectedInGame) {
+        const cleanedState = handlePlayerDisconnect(
+          gameState,
+          disconnectedInGame.id
+        );
+        dispatchGameState(cleanedState);
+      }
+    }
+  }, [
+    isOnline,
+    roomData,
+    myPlayerId,
+    roomCode,
+    screen,
+    gameState,
+    dispatchGameState,
+  ]);
+
   // --- AUTOMAÇÃO DOS BOTS ---
   useEffect(() => {
     if (screen !== 'playing' || !gameState || gameState.phase !== 'playing') {
       return;
     }
 
-    // No modo online, apenas o anfitrião processa a lógica dos bots para evitar duplicidade
     if (isOnline && roomData?.hostId !== myPlayerId) {
       return;
     }
@@ -112,7 +164,6 @@ export function App() {
     const pending = gameState.pendingAction;
     const currentPlayer = gameState.players[gameState.currentTurnIndex];
 
-    // 1. Verifica se há uma ação pendente disparada por um Bot
     if (pending) {
       const sourcePlayer = gameState.players.find(
         (p) => p.id === pending.sourcePlayerId
@@ -123,13 +174,12 @@ export function App() {
           if (targetId) {
             dispatchGameState(resolvePendingAction(gameState, targetId));
           }
-        }, 1100);
+        }, 1200);
         return () => clearTimeout(timer);
       }
       return;
     }
 
-    // 2. Verifica se o turno normal atual pertence a um Bot ativo
     if (currentPlayer?.isBot && currentPlayer.status === 'active') {
       const timer = setTimeout(() => {
         const decision = decideBotTurnAction(gameState, currentPlayer);
@@ -138,7 +188,7 @@ export function App() {
         } else {
           dispatchGameState(playerStay(gameState, currentPlayer.id));
         }
-      }, 1100);
+      }, 1200);
       return () => clearTimeout(timer);
     }
   }, [
@@ -185,9 +235,21 @@ export function App() {
     }
   };
 
+  const handleLeaveMatch = async () => {
+    if (isOnline && roomCode && myPlayerId) {
+      await leaveOnlineRoom(roomCode, myPlayerId);
+    }
+    setRoomCode('');
+    setRoomData(null);
+    setLocalGameState(null);
+    setScreen('home');
+  };
+
   const handleAddOnlineBot = async () => {
     if (!roomData?.lobbyPlayers) return;
-    const list = Object.values(roomData.lobbyPlayers);
+    const list = Object.values(roomData.lobbyPlayers).filter(
+      (p) => p.online !== false
+    );
     if (list.length >= 18) return;
     const botCount = list.filter((p) => p.isBot).length;
     await addBotToOnlineLobby(roomCode, createBotPlayer(botCount));
@@ -195,9 +257,9 @@ export function App() {
 
   const handleStartOnlineGame = async () => {
     if (!roomData?.lobbyPlayers) return;
-    const list = Object.values(roomData.lobbyPlayers).sort(
-      (a, b) => a.joinedAt - b.joinedAt
-    );
+    const list = Object.values(roomData.lobbyPlayers)
+      .filter((p) => p.online !== false)
+      .sort((a, b) => a.joinedAt - b.joinedAt);
     if (list.length < 2) return;
     const initial = createInitialGameState(list);
     await startOnlineMatch(roomCode, initial);
@@ -323,9 +385,9 @@ export function App() {
 
   // --- LOBBY DA SALA ONLINE ---
   if (screen === 'online_lobby' && roomData) {
-    const lobbyList = Object.values(roomData.lobbyPlayers || {}).sort(
-      (a, b) => a.joinedAt - b.joinedAt
-    );
+    const lobbyList = Object.values(roomData.lobbyPlayers || {})
+      .filter((p) => p.online !== false)
+      .sort((a, b) => a.joinedAt - b.joinedAt);
     const isHost = roomData.hostId === myPlayerId;
 
     return (
@@ -390,6 +452,19 @@ export function App() {
               Aguardando o anfitrião iniciar a partida...
             </p>
           )}
+
+          <button
+            type="button"
+            className="btn"
+            style={{
+              marginTop: '1rem',
+              background: 'transparent',
+              color: '#94a3b8',
+            }}
+            onClick={handleLeaveMatch}
+          >
+            ← Sair da Sala
+          </button>
         </div>
       </div>
     );
@@ -488,6 +563,9 @@ export function App() {
 
   const currentPlayer = gameState.players[gameState.currentTurnIndex];
   const pending = gameState.pendingAction;
+  const activeCount = gameState.players.filter(
+    (p) => p.status !== 'disconnected'
+  ).length;
 
   const sourceIsBot = pending
     ? gameState.players.find((p) => p.id === pending.sourcePlayerId)?.isBot
@@ -532,18 +610,14 @@ export function App() {
           <button
             className="btn btn-primary"
             style={{ padding: '0.35rem 0.8rem', fontSize: '0.85rem' }}
-            onClick={() => {
-              setRoomCode('');
-              setRoomData(null);
-              setLocalGameState(null);
-              setScreen('home');
-            }}
+            onClick={handleLeaveMatch}
           >
             Sair
           </button>
         </div>
       </header>
 
+      {/* Barra de Controle + Visualização da Última Carta/Ação */}
       {gameState.phase === 'playing' && (
         <div className={`action-bar ${pending ? 'pending-alert' : ''}`}>
           {pending ? (
@@ -558,15 +632,30 @@ export function App() {
               </p>
             </div>
           ) : (
+            <div>
+              <span>Vez de: </span>
+              <strong style={{ fontSize: '1.25rem', color: '#38bdf8' }}>
+                {currentPlayer?.name}
+                {currentPlayer?.isBot && ' 🤖'}
+                {isOnline && currentPlayer?.id === myPlayerId && ' (Sua vez!)'}
+              </strong>
+            </div>
+          )}
+
+          {/* Carta em destaque do último evento */}
+          {gameState.lastEvent && (
+            <div className="last-event-box">
+              {gameState.lastEvent.card && (
+                <Card card={gameState.lastEvent.card} />
+              )}
+              <span className="last-event-text">
+                {gameState.lastEvent.description}
+              </span>
+            </div>
+          )}
+
+          {!pending && (
             <>
-              <div>
-                <span>Vez de: </span>
-                <strong style={{ fontSize: '1.25rem', color: '#38bdf8' }}>
-                  {currentPlayer?.name}
-                  {currentPlayer?.isBot && ' 🤖'}
-                  {isOnline && currentPlayer?.id === myPlayerId && ' (Sua vez!)'}
-                </strong>
-              </div>
               {canActTurn ? (
                 <div className="action-buttons">
                   <button
@@ -606,21 +695,26 @@ export function App() {
         <div className="action-bar">
           <div>
             <strong>Fim da Rodada {gameState.roundNumber}!</strong>
-            <p>Confira as pontuações atualizadas abaixo.</p>
+            <p>
+              {activeCount < 2
+                ? 'Menos de 2 jogadores permaneceram na sala.'
+                : 'Confira as pontuações atualizadas abaixo.'}
+            </p>
           </div>
-          {!isOnline || roomData?.hostId === myPlayerId ? (
-            <button
-              className="btn btn-success"
-              style={{ width: 'auto' }}
-              onClick={() => dispatchGameState(startNextRound(gameState))}
-            >
-              Iniciar Rodada {gameState.roundNumber + 1}
-            </button>
-          ) : (
-            <span style={{ color: '#94a3b8' }}>
-              Aguardando o anfitrião iniciar a próxima rodada...
-            </span>
-          )}
+          {activeCount >= 2 &&
+            (!isOnline || roomData?.hostId === myPlayerId ? (
+              <button
+                className="btn btn-success"
+                style={{ width: 'auto' }}
+                onClick={() => dispatchGameState(startNextRound(gameState))}
+              >
+                Iniciar Rodada {gameState.roundNumber + 1}
+              </button>
+            ) : (
+              <span style={{ color: '#94a3b8' }}>
+                Aguardando o anfitrião iniciar a próxima rodada...
+              </span>
+            ))}
         </div>
       )}
 
@@ -644,12 +738,14 @@ export function App() {
               onClick={() =>
                 dispatchGameState(
                   createInitialGameState(
-                    gameState.players.map((p) => ({
-                      id: p.id,
-                      name: p.name,
-                      isBot: p.isBot,
-                      botProfile: p.botProfile,
-                    }))
+                    gameState.players
+                      .filter((p) => p.status !== 'disconnected')
+                      .map((p) => ({
+                        id: p.id,
+                        name: p.name,
+                        isBot: p.isBot,
+                        botProfile: p.botProfile,
+                      }))
                   )
                 )
               }

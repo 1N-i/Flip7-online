@@ -1,4 +1,5 @@
 # 🃏 Flip 7 Online
+### 👉 **[CLIQUE AQUI PARA JOGAR ONLINE NO NAVEGADOR](https://1n-i.github.io/Flip7-online/)**
 
 Recriação web multiplayer do jogo de cartas **Flip 7**, desenvolvida em React com sincronização em tempo real via Firebase Realtime Database e suporte a oponentes controlados por IA (Bots).
 

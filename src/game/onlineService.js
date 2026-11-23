@@ -6,6 +6,7 @@ import {
   get,
   update,
   onValue,
+  onDisconnect,
 } from 'firebase/database';
 
 const firebaseConfig = {
@@ -18,7 +19,6 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// Inicializa o Firebase apenas se as variáveis estiverem configuradas
 const isConfigured = Boolean(firebaseConfig.databaseURL);
 const app = isConfigured ? initializeApp(firebaseConfig) : null;
 const db = app ? getDatabase(app) : null;
@@ -27,7 +27,6 @@ export function isOnlineAvailable() {
   return isConfigured;
 }
 
-// Gera um código de sala curto de 4 caracteres sem letras/números ambíguos.
 function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
@@ -37,7 +36,14 @@ function generateRoomCode() {
   return code;
 }
 
-// Cria uma nova sala online e retorna { roomCode, playerId }.
+// Configura detecção automática de desconexão no servidor do Firebase.
+export function registerPlayerPresence(roomCode, playerId) {
+  if (!db || !roomCode || !playerId) return;
+  const presenceRef = ref(db, `rooms/${roomCode}/lobbyPlayers/${playerId}/online`);
+  set(presenceRef, true);
+  onDisconnect(presenceRef).set(false);
+}
+
 export async function createOnlineRoom(hostName) {
   if (!db) throw new Error('Firebase não configurado no arquivo .env.local');
 
@@ -45,7 +51,6 @@ export async function createOnlineRoom(hostName) {
   let roomRef = ref(db, `rooms/${roomCode}`);
   let snapshot = await get(roomRef);
 
-  // Garante que o código gerado não colida com uma sala ativa
   while (snapshot.exists()) {
     roomCode = generateRoomCode();
     roomRef = ref(db, `rooms/${roomCode}`);
@@ -56,23 +61,24 @@ export async function createOnlineRoom(hostName) {
 
   await set(roomRef, {
     code: roomCode,
-    status: 'lobby', // 'lobby' | 'playing'
+    status: 'lobby',
     hostId: playerId,
     createdAt: Date.now(),
     lobbyPlayers: {
       [playerId]: {
         id: playerId,
         name: hostName.trim(),
+        online: true,
         joinedAt: Date.now(),
       },
     },
     gameState: null,
   });
 
+  registerPlayerPresence(roomCode, playerId);
   return { roomCode, playerId };
 }
 
-// Entra em uma sala existente pelo código.
 export async function joinOnlineRoom(rawCode, playerName) {
   if (!db) throw new Error('Firebase não configurado no arquivo .env.local');
 
@@ -90,7 +96,9 @@ export async function joinOnlineRoom(rawCode, playerName) {
     throw new Error('Esta partida já está em andamento.');
   }
 
-  const currentPlayers = Object.values(roomData.lobbyPlayers || {});
+  const currentPlayers = Object.values(roomData.lobbyPlayers || {}).filter(
+    (p) => p.online !== false
+  );
   if (currentPlayers.length >= 18) {
     throw new Error('A sala já atingiu o limite máximo de 18 jogadores.');
   }
@@ -100,13 +108,14 @@ export async function joinOnlineRoom(rawCode, playerName) {
   await update(ref(db, `rooms/${roomCode}/lobbyPlayers/${playerId}`), {
     id: playerId,
     name: playerName.trim(),
+    online: true,
     joinedAt: Date.now(),
   });
 
+  registerPlayerPresence(roomCode, playerId);
   return { roomCode, playerId };
 }
 
-// Escuta alterações em tempo real na sala. Retorna função para cancelar inscrição.
 export function subscribeToRoom(roomCode, callback) {
   if (!db) return () => {};
   const roomRef = ref(db, `rooms/${roomCode}`);
@@ -115,7 +124,6 @@ export function subscribeToRoom(roomCode, callback) {
   });
 }
 
-// Inicia a partida online gravando o estado inicial gerado pelo motor.
 export async function startOnlineMatch(roomCode, initialGameState) {
   if (!db) return;
   await update(ref(db, `rooms/${roomCode}`), {
@@ -124,13 +132,42 @@ export async function startOnlineMatch(roomCode, initialGameState) {
   });
 }
 
-// Sincroniza o novo estado do jogo após uma jogada.
 export async function syncGameState(roomCode, nextGameState) {
   if (!db) return;
   await set(ref(db, `rooms/${roomCode}/gameState`), nextGameState);
 }
 
-// Normaliza o gameState vindo do Firebase (restaurando arrays vazios omitidos pelo banco).
+// Transfere a liderança da sala para outro jogador humano conectado caso o host saia.
+export async function transferHost(roomCode, newHostId) {
+  if (!db || !roomCode || !newHostId) return;
+  await update(ref(db, `rooms/${roomCode}`), {
+    hostId: newHostId,
+  });
+}
+
+// Marca o jogador como desconectado ao clicar em Sair.
+export async function leaveOnlineRoom(roomCode, playerId) {
+  if (!db || !roomCode || !playerId) return;
+  await set(
+    ref(db, `rooms/${roomCode}/lobbyPlayers/${playerId}/online`),
+    false
+  );
+}
+
+export async function addBotToOnlineLobby(roomCode, botData) {
+  if (!db) return;
+  await update(ref(db, `rooms/${roomCode}/lobbyPlayers/${botData.id}`), {
+    ...botData,
+    online: true,
+    joinedAt: Date.now(),
+  });
+}
+
+export async function removePlayerFromOnlineLobby(roomCode, playerId) {
+  if (!db) return;
+  await set(ref(db, `rooms/${roomCode}/lobbyPlayers/${playerId}`), null);
+}
+
 export function normalizeFirebaseGameState(raw) {
   if (!raw) return null;
   return {
@@ -144,19 +181,4 @@ export function normalizeFirebaseGameState(raw) {
       hand: p.hand || [],
     })),
   };
-}
-
-// Adiciona um Bot ao lobby de uma sala online.
-export async function addBotToOnlineLobby(roomCode, botData) {
-  if (!db) return;
-  await update(ref(db, `rooms/${roomCode}/lobbyPlayers/${botData.id}`), {
-    ...botData,
-    joinedAt: Date.now(),
-  });
-}
-
-// Remove um jogador ou Bot do lobby de uma sala online.
-export async function removePlayerFromOnlineLobby(roomCode, playerId) {
-  if (!db) return;
-  await set(ref(db, `rooms/${roomCode}/lobbyPlayers/${playerId}`), null);
 }
