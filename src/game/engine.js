@@ -13,6 +13,7 @@ export function createInitialGameState(playersList) {
     id: p.id || `player-${index}`,
     name: p.name,
     isBot: Boolean(p.isBot),
+    botProfile: p.botProfile || null,
     totalScore: 0,
     hand: [], // Cartas numéricas e modificadoras na rodada
     hasSecondChance: false, // Se possui escudo Second Chance ativo

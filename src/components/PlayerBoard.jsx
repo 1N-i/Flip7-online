@@ -31,6 +31,7 @@ export function PlayerBoard({
       <div className="player-header">
         <div className="player-title">
           <strong>{player.name}</strong>
+          {player.isBot && <span className="badge badge-bot">🤖 Bot</span>}
           {isDealer && <span className="badge badge-dealer">Dealer</span>}
           {isCurrentTurn && <span className="badge badge-turn">Vez</span>}
           {player.hasSecondChance && (

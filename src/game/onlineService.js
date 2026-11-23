@@ -145,3 +145,18 @@ export function normalizeFirebaseGameState(raw) {
     })),
   };
 }
+
+// Adiciona um Bot ao lobby de uma sala online.
+export async function addBotToOnlineLobby(roomCode, botData) {
+  if (!db) return;
+  await update(ref(db, `rooms/${roomCode}/lobbyPlayers/${botData.id}`), {
+    ...botData,
+    joinedAt: Date.now(),
+  });
+}
+
+// Remove um jogador ou Bot do lobby de uma sala online.
+export async function removePlayerFromOnlineLobby(roomCode, playerId) {
+  if (!db) return;
+  await set(ref(db, `rooms/${roomCode}/lobbyPlayers/${playerId}`), null);
+}
