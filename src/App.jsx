@@ -617,45 +617,47 @@ export function App() {
         </div>
       </header>
 
-      {/* Barra de Controle + Visualização da Última Carta/Ação */}
+      {/* Barra de Controle do Turno (mostra a carta apenas durante ação pendente) */}
       {gameState.phase === 'playing' && (
         <div className={`action-bar ${pending ? 'pending-alert' : ''}`}>
           {pending ? (
-            <div>
-              <strong>⚠️ Ação Pendente: {actionNames[pending.type]}</strong>
-              <p>
-                {canResolvePending
-                  ? 'Clique no tabuleiro de um jogador ativo destacado para aplicar o efeito.'
-                  : sourceIsBot
-                  ? '🤖 O Bot está escolhendo um alvo...'
-                  : 'Aguardando o jogador escolher um alvo...'}
-              </p>
-            </div>
-          ) : (
-            <div>
-              <span>Vez de: </span>
-              <strong style={{ fontSize: '1.25rem', color: '#38bdf8' }}>
-                {currentPlayer?.name}
-                {currentPlayer?.isBot && ' 🤖'}
-                {isOnline && currentPlayer?.id === myPlayerId && ' (Sua vez!)'}
-              </strong>
-            </div>
-          )}
-
-          {/* Carta em destaque do último evento */}
-          {gameState.lastEvent && (
-            <div className="last-event-box">
-              {gameState.lastEvent.card && (
-                <Card card={gameState.lastEvent.card} />
-              )}
-              <span className="last-event-text">
-                {gameState.lastEvent.description}
-              </span>
-            </div>
-          )}
-
-          {!pending && (
             <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <Card
+                  card={
+                    pending.card || {
+                      type: 'action',
+                      value:
+                        pending.type === 'give_second_chance'
+                          ? 'second_chance'
+                          : pending.type,
+                      label: actionNames[pending.type],
+                    }
+                  }
+                />
+                <div>
+                  <strong>⚠️ Ação Pendente: {actionNames[pending.type]}</strong>
+                  <p>
+                    {canResolvePending
+                      ? 'Clique no tabuleiro de um jogador ativo destacado para aplicar o efeito.'
+                      : sourceIsBot
+                      ? '🤖 O Bot está escolhendo um alvo...'
+                      : 'Aguardando o jogador escolher um alvo...'}
+                  </p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <span>Vez de: </span>
+                <strong style={{ fontSize: '1.25rem', color: '#facc15' }}>
+                  {currentPlayer?.name}
+                  {currentPlayer?.isBot && ' 🤖'}
+                  {isOnline && currentPlayer?.id === myPlayerId && ' (Sua vez!)'}
+                </strong>
+              </div>
+
               {canActTurn ? (
                 <div className="action-buttons">
                   <button
