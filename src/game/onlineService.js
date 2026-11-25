@@ -5,6 +5,7 @@ import {
   set,
   get,
   update,
+  remove,
   onValue,
   onDisconnect,
 } from 'firebase/database';
@@ -160,13 +161,40 @@ export async function transferHost(roomCode, newHostId) {
   });
 }
 
-// Marca o jogador como desconectado ao clicar em Sair.
+// Remove completamente uma sala do Realtime Database.
+export async function deleteOnlineRoom(roomCode) {
+  if (!db || !roomCode) return;
+  await remove(ref(db, `rooms/${roomCode}`));
+}
+
+/**
+ * Marca o jogador como desconectado ao clicar em Sair.
+ * Se não restar nenhum jogador humano conectado na sala (apenas bots ou vazia),
+ * deleta a sala imediatamente do banco de dados.
+ */
 export async function leaveOnlineRoom(roomCode, playerId) {
   if (!db || !roomCode || !playerId) return;
-  await set(
-    ref(db, `rooms/${roomCode}/lobbyPlayers/${playerId}/online`),
-    false
+
+  const roomRef = ref(db, `rooms/${roomCode}`);
+  const snapshot = await get(roomRef);
+  if (!snapshot.exists()) return;
+
+  const roomData = snapshot.val();
+  const lobbyPlayers = roomData.lobbyPlayers || {};
+
+  // Verifica se ainda existe algum outro jogador humano online além de quem está saindo
+  const otherConnectedHumans = Object.values(lobbyPlayers).filter(
+    (p) => !p.isBot && p.id !== playerId && p.online !== false
   );
+
+  if (otherConnectedHumans.length === 0) {
+    await remove(roomRef);
+  } else {
+    await set(
+      ref(db, `rooms/${roomCode}/lobbyPlayers/${playerId}/online`),
+      false
+    );
+  }
 }
 
 export async function addBotToOnlineLobby(roomCode, botData) {

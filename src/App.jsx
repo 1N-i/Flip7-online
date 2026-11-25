@@ -25,6 +25,7 @@ import {
   removePlayerFromOnlineLobby,
   transferHost,
   leaveOnlineRoom,
+  deleteOnlineRoom,
 } from './game/onlineService.js';
 import { PlayerBoard } from './components/PlayerBoard.jsx';
 import { Card } from './components/Card.jsx';
@@ -53,7 +54,7 @@ export function App() {
 
   // Estados do Modo Local
   const [setupPlayers, setSetupPlayers] = useState([
-    { id: 'p-1', name: 'Giovani', isBot: false },
+    { id: 'p-1', name: 'Jogador 1', isBot: false },
     createBotPlayer(0),
   ]);
   const [newPlayerName, setNewPlayerName] = useState('');
@@ -102,7 +103,7 @@ export function App() {
     [isOnline, roomCode]
   );
 
-  // --- MONITORAMENTO DE DESCONEXÃO E TROCA DE ADMIN (ANTI-SOFTLOCK) ---
+  // --- MONITORAMENTO DE DESCONEXÃO E TROCA DE ADMIN ---
   useEffect(() => {
     if (!isOnline || !roomData || !myPlayerId) return;
 
@@ -111,7 +112,10 @@ export function App() {
       .filter((p) => !p.isBot && p.online !== false)
       .sort((a, b) => a.joinedAt - b.joinedAt);
 
-    if (connectedHumans.length === 0) return;
+    if (connectedHumans.length === 0) {
+      deleteOnlineRoom(roomCode);
+      return;
+    }
 
     // 1. Se o anfitrião atual ficou offline, o primeiro humano conectado assume o cargo
     const currentHost = roomData.lobbyPlayers?.[roomData.hostId];
