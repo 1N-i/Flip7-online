@@ -18,6 +18,7 @@ import {
   joinOnlineRoom,
   subscribeToRoom,
   startOnlineMatch,
+  promoteSpectatorsAndStart,
   syncGameState,
   normalizeFirebaseGameState,
   addBotToOnlineLobby,
@@ -227,7 +228,7 @@ export function App() {
       const res = await joinOnlineRoom(joinCode, playerName);
       setRoomCode(res.roomCode);
       setMyPlayerId(res.playerId);
-      setScreen('online_lobby');
+      setScreen(res.isSpectator ? 'playing' : 'online_lobby');
     } catch (err) {
       setErrorMsg(err.message);
     } finally {
@@ -561,6 +562,13 @@ export function App() {
   // --- PARTIDA EM ANDAMENTO ---
   if (!gameState) return null;
 
+  const onlineSpectators = isOnline
+    ? Object.values(roomData?.lobbyPlayers || {}).filter(
+        (p) => p.online !== false && p.isSpectator
+      )
+    : [];
+  const amISpectator = isOnline && Boolean(roomData?.lobbyPlayers?.[myPlayerId]?.isSpectator);
+
   const currentPlayer = gameState.players[gameState.currentTurnIndex];
   const pending = gameState.pendingAction;
   const activeCount = gameState.players.filter(
@@ -605,6 +613,14 @@ export function App() {
           </h2>
         </div>
         <div className="deck-info">
+          {isOnline && onlineSpectators.length > 0 && (
+            <span
+              style={{ color: '#c084fc', fontWeight: 600 }}
+              title={onlineSpectators.map((s) => s.name).join(', ')}
+            >
+              👁️ Espectadores: {onlineSpectators.length}
+            </span>
+          )}
           <span>Baralho: {gameState.drawPile.length} cartas</span>
           <span>Descarte: {gameState.discardPile.length} cartas</span>
           <button
@@ -616,6 +632,22 @@ export function App() {
           </button>
         </div>
       </header>
+      {amISpectator && (
+        <div
+          style={{
+            background: '#2e1065',
+            border: '1px solid #9333ea',
+            color: '#e9d5ff',
+            padding: '0.7rem 1.2rem',
+            borderRadius: '10px',
+            marginBottom: '1rem',
+            textAlign: 'center',
+            fontWeight: 600,
+          }}
+        >
+          👁️ Você está assistindo como Espectador. Você entrará automaticamente como jogador na próxima partida!
+        </div>
+      )}
 
       {/* Barra de Controle do Turno (mostra a carta apenas durante ação pendente) */}
       {gameState.phase === 'playing' && (
@@ -737,20 +769,42 @@ export function App() {
           {(!isOnline || roomData?.hostId === myPlayerId) && (
             <button
               className="btn btn-primary"
-              onClick={() =>
-                dispatchGameState(
-                  createInitialGameState(
-                    gameState.players
-                      .filter((p) => p.status !== 'disconnected')
-                      .map((p) => ({
-                        id: p.id,
-                        name: p.name,
-                        isBot: p.isBot,
-                        botProfile: p.botProfile,
-                      }))
+              onClick={async () => {
+                if (isOnline) {
+                  const nextParticipants = Object.values(
+                    roomData?.lobbyPlayers || {}
                   )
-                )
-              }
+                    .filter((p) => p.online !== false)
+                    .sort((a, b) => a.joinedAt - b.joinedAt)
+                    .slice(0, 18)
+                    .map((p) => ({
+                      id: p.id,
+                      name: p.name,
+                      isBot: Boolean(p.isBot),
+                      botProfile: p.botProfile || null,
+                    }));
+
+                  const newGame = createInitialGameState(nextParticipants);
+                  await promoteSpectatorsAndStart(
+                    roomCode,
+                    roomData.lobbyPlayers,
+                    newGame
+                  );
+                } else {
+                  dispatchGameState(
+                    createInitialGameState(
+                      gameState.players
+                        .filter((p) => p.status !== 'disconnected')
+                        .map((p) => ({
+                          id: p.id,
+                          name: p.name,
+                          isBot: p.isBot,
+                          botProfile: p.botProfile,
+                        }))
+                    )
+                  );
+                }
+              }}
             >
               Jogar Novamente
             </button>

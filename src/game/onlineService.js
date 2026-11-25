@@ -91,15 +91,13 @@ export async function joinOnlineRoom(rawCode, playerName) {
   }
 
   const roomData = snapshot.val();
+  const isPlaying = roomData.status === 'playing';
 
-  if (roomData.status !== 'lobby') {
-    throw new Error('Esta partida já está em andamento.');
-  }
-
-  const currentPlayers = Object.values(roomData.lobbyPlayers || {}).filter(
-    (p) => p.online !== false
+  const activeLobbyPlayers = Object.values(roomData.lobbyPlayers || {}).filter(
+    (p) => p.online !== false && !p.isSpectator
   );
-  if (currentPlayers.length >= 18) {
+
+  if (!isPlaying && activeLobbyPlayers.length >= 18) {
     throw new Error('A sala já atingiu o limite máximo de 18 jogadores.');
   }
 
@@ -109,11 +107,12 @@ export async function joinOnlineRoom(rawCode, playerName) {
     id: playerId,
     name: playerName.trim(),
     online: true,
+    isSpectator: isPlaying,
     joinedAt: Date.now(),
   });
 
   registerPlayerPresence(roomCode, playerId);
-  return { roomCode, playerId };
+  return { roomCode, playerId, isSpectator: isPlaying };
 }
 
 export function subscribeToRoom(roomCode, callback) {
@@ -128,6 +127,22 @@ export async function startOnlineMatch(roomCode, initialGameState) {
   if (!db) return;
   await update(ref(db, `rooms/${roomCode}`), {
     status: 'playing',
+    gameState: initialGameState,
+  });
+}
+
+export async function promoteSpectatorsAndStart(roomCode, lobbyPlayers, initialGameState) {
+  if (!db) return;
+  const updatedLobby = { ...lobbyPlayers };
+  Object.keys(updatedLobby).forEach((id) => {
+    if (updatedLobby[id]) {
+      updatedLobby[id].isSpectator = false;
+    }
+  });
+
+  await update(ref(db, `rooms/${roomCode}`), {
+    status: 'playing',
+    lobbyPlayers: updatedLobby,
     gameState: initialGameState,
   });
 }
